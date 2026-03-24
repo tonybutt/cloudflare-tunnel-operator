@@ -13,12 +13,14 @@ use crate::crd::CloudflareTunnel;
 const DEFAULT_IMAGE: &str = "cloudflare/cloudflared:2024.11.0";
 
 /// Builds a cloudflared Deployment with volume mounts for credentials and config.
-pub fn build(tunnel: &CloudflareTunnel) -> Deployment {
+pub fn build(tunnel: &CloudflareTunnel) -> Result<Deployment, &'static str> {
     let name = tunnel.name_any();
     let namespace = tunnel
         .namespace()
-        .expect("CloudflareTunnel must be namespaced");
-    let owner_ref = tunnel.controller_owner_ref(&()).unwrap();
+        .ok_or("CloudflareTunnel must be namespaced")?;
+    let owner_ref = tunnel
+        .controller_owner_ref(&())
+        .ok_or("failed to build owner reference")?;
 
     let image = tunnel
         .spec
@@ -34,7 +36,7 @@ pub fn build(tunnel: &CloudflareTunnel) -> Deployment {
         l
     };
 
-    Deployment {
+    Ok(Deployment {
         metadata: ObjectMeta {
             name: Some(deploy_name.clone()),
             namespace: Some(namespace),
@@ -102,7 +104,7 @@ pub fn build(tunnel: &CloudflareTunnel) -> Deployment {
             ..Default::default()
         }),
         ..Default::default()
-    }
+    })
 }
 
 fn managed_by_labels() -> BTreeMap<String, String> {

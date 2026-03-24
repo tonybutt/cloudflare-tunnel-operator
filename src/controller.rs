@@ -21,19 +21,36 @@ const ERROR_REQUEUE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] kube::Error),
-    #[error("Cloudflare error: {0}")]
-    Cloudflare(#[from] crate::cloudflare::client::CloudflareError),
-    #[error("Finalizer error: {0}")]
+    #[error("kubernetes API error during {operation}: {source}")]
+    Kube {
+        #[source]
+        source: kube::Error,
+        operation: &'static str,
+    },
+    #[error("cloudflare API error during {operation}: {source}")]
+    Cloudflare {
+        #[source]
+        source: crate::cloudflare::client::CloudflareError,
+        operation: &'static str,
+    },
+    #[error("finalizer error: {0}")]
     Finalizer(#[source] Box<kube::runtime::finalizer::Error<Error>>),
-    #[error("Missing field: {0}")]
-    MissingField(&'static str),
+    #[error("invalid resource: {0}")]
+    InvalidResource(&'static str),
 }
 
-impl From<kube::Error> for Error {
-    fn from(e: kube::Error) -> Self {
-        Error::Kube(e)
+impl Error {
+    pub fn condition_reason(&self) -> &'static str {
+        match self {
+            Error::Kube { .. } => "KubernetesError",
+            Error::Cloudflare { .. } => "CloudflareError",
+            Error::Finalizer(_) => "FinalizerError",
+            Error::InvalidResource(_) => "InvalidSpec",
+        }
+    }
+
+    pub fn is_transient(&self) -> bool {
+        !matches!(self, Error::InvalidResource(_))
     }
 }
 
@@ -43,7 +60,16 @@ pub struct Ctx {
 }
 
 pub async fn reconcile(obj: Arc<CloudflareTunnel>, ctx: Arc<Ctx>) -> Result<Action, Error> {
-    let ns = obj.namespace().ok_or(Error::MissingField("namespace"))?;
+    let result = reconcile_inner(obj.clone(), ctx.clone()).await;
+    if let Err(ref e) = result {
+        // Best-effort status update -- don't fail if this fails
+        let _ = set_failed_status(&obj, &ctx.client, e).await;
+    }
+    result
+}
+
+async fn reconcile_inner(obj: Arc<CloudflareTunnel>, ctx: Arc<Ctx>) -> Result<Action, Error> {
+    let ns = obj.namespace().ok_or(Error::InvalidResource("namespace"))?;
     let api: Api<CloudflareTunnel> = Api::namespaced(ctx.client.clone(), &ns);
 
     finalizer(&api, FINALIZER, obj, |event| async {
@@ -56,14 +82,60 @@ pub async fn reconcile(obj: Arc<CloudflareTunnel>, ctx: Arc<Ctx>) -> Result<Acti
     .map_err(|e| Error::Finalizer(Box::new(e)))
 }
 
+async fn set_failed_status(
+    tunnel: &CloudflareTunnel,
+    client: &Client,
+    error: &Error,
+) -> Result<(), kube::Error> {
+    let ns = tunnel.namespace().unwrap_or_default();
+    let name = tunnel.name_any();
+    let api: Api<CloudflareTunnel> = Api::namespaced(client.clone(), &ns);
+
+    let status = CloudflareTunnelStatus {
+        tunnel_id: tunnel.status.as_ref().and_then(|s| s.tunnel_id.clone()),
+        conditions: vec![Condition {
+            type_: "Ready".to_string(),
+            status: "False".to_string(),
+            reason: error.condition_reason().to_string(),
+            message: error.to_string(),
+            last_transition_time: k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(
+                k8s_openapi::jiff::Timestamp::now(),
+            ),
+            observed_generation: tunnel.metadata.generation,
+        }],
+        routes: tunnel
+            .status
+            .as_ref()
+            .map(|s| s.routes.clone())
+            .unwrap_or_default(),
+    };
+
+    let patch = serde_json::json!({
+        "apiVersion": "tunnels.abutt.dev/v1alpha1",
+        "kind": "CloudflareTunnel",
+        "status": status,
+    });
+    let pp = PatchParams::apply(MANAGER).force();
+    api.patch_status(&name, &pp, &Patch::Apply(&patch)).await?;
+    Ok(())
+}
+
 async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error> {
     let name = tunnel.name_any();
-    let ns = tunnel.namespace().ok_or(Error::MissingField("namespace"))?;
+    let ns = tunnel
+        .namespace()
+        .ok_or(Error::InvalidResource("namespace"))?;
     let client = &ctx.client;
     let cf = ctx.cf.as_ref();
 
     // 1. Resolve zone
-    let (zone_id, account_id) = cf.get_zone_id(&tunnel.spec.zone).await?;
+    let (zone_id, account_id) =
+        cf.get_zone_id(&tunnel.spec.zone)
+            .await
+            .map_err(|e| Error::Cloudflare {
+                source: e,
+                operation: "zone_resolution",
+            })?;
 
     // 2. Ensure tunnel exists
     let (tunnel_id, credentials_json) = ensure_tunnel(&tunnel, cf, &account_id).await?;
@@ -73,7 +145,8 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
 
     // 4. Sync Secret (server-side apply)
     if let Some(creds) = &credentials_json {
-        let secret = resources::secret::build(&tunnel, creds.as_bytes());
+        let secret =
+            resources::secret::build(&tunnel, creds.as_bytes()).map_err(Error::InvalidResource)?;
         let secret_api: Api<Secret> = Api::namespaced(client.clone(), &ns);
         let pp = PatchParams::apply(MANAGER).force();
         secret_api
@@ -82,19 +155,28 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
                 &pp,
                 &Patch::Apply(&secret),
             )
-            .await?;
+            .await
+            .map_err(|e| Error::Kube {
+                source: e,
+                operation: "sync_secret",
+            })?;
     }
 
     // 5. Sync ConfigMap
-    let configmap = resources::configmap::build(&tunnel, &tunnel_id);
+    let configmap =
+        resources::configmap::build(&tunnel, &tunnel_id).map_err(Error::InvalidResource)?;
     let cm_api: Api<ConfigMap> = Api::namespaced(client.clone(), &ns);
     let pp = PatchParams::apply(MANAGER).force();
     cm_api
         .patch(&format!("{name}-config"), &pp, &Patch::Apply(&configmap))
-        .await?;
+        .await
+        .map_err(|e| Error::Kube {
+            source: e,
+            operation: "sync_configmap",
+        })?;
 
     // 6. Sync Deployment
-    let deployment = resources::deployment::build(&tunnel);
+    let deployment = resources::deployment::build(&tunnel).map_err(Error::InvalidResource)?;
     let deploy_api: Api<Deployment> = Api::namespaced(client.clone(), &ns);
     let pp = PatchParams::apply(MANAGER).force();
     deploy_api
@@ -103,7 +185,11 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
             &pp,
             &Patch::Apply(&deployment),
         )
-        .await?;
+        .await
+        .map_err(|e| Error::Kube {
+            source: e,
+            operation: "sync_deployment",
+        })?;
 
     // 7. Update status (before Gateway sync, so tunnel_id is persisted even if Gateway CRD is missing)
     let status = CloudflareTunnelStatus {
@@ -130,10 +216,14 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
     let pp = PatchParams::apply(MANAGER).force();
     tunnel_api
         .patch_status(&name, &pp, &Patch::Apply(&status_patch))
-        .await?;
+        .await
+        .map_err(|e| Error::Kube {
+            source: e,
+            operation: "patch_status",
+        })?;
 
-    // 8. Sync Gateway (best-effort — Gateway API CRDs may not be installed)
-    let gateway = resources::gateway::build(&tunnel);
+    // 8. Sync Gateway (best-effort -- Gateway API CRDs may not be installed)
+    let gateway = resources::gateway::build(&tunnel).map_err(Error::InvalidResource)?;
     let gw_ar = resources::gateway::gateway_api_resource();
     let gw_api: Api<DynamicObject> = Api::namespaced_with(client.clone(), &ns, &gw_ar);
     let pp = PatchParams::apply(MANAGER).force();
@@ -162,7 +252,13 @@ async fn ensure_tunnel(
     if let Some(ref status) = tunnel.status {
         if let Some(ref tid) = status.tunnel_id {
             // Verify it still exists
-            match cf.get_tunnel(account_id, tid).await? {
+            match cf
+                .get_tunnel(account_id, tid)
+                .await
+                .map_err(|e| Error::Cloudflare {
+                    source: e,
+                    operation: "get_tunnel",
+                })? {
                 Some(_) => return Ok((tid.clone(), None)),
                 None => {
                     tracing::warn!(tunnel_id = %tid, "tunnel was deleted externally, recreating");
@@ -172,7 +268,13 @@ async fn ensure_tunnel(
     }
 
     // Create a new tunnel
-    let (t, creds) = cf.create_tunnel(account_id, &name).await?;
+    let (t, creds) = cf
+        .create_tunnel(account_id, &name)
+        .await
+        .map_err(|e| Error::Cloudflare {
+            source: e,
+            operation: "create_tunnel",
+        })?;
     tracing::info!(tunnel_id = %t.id, "created tunnel");
     Ok((t.id, Some(creds)))
 }
@@ -194,7 +296,13 @@ async fn sync_dns(
     // Ensure CNAMEs for each listener
     let mut route_statuses = Vec::new();
     for hostname in &desired_hostnames {
-        let record = cf.ensure_dns_cname(zone_id, hostname, tunnel_id).await?;
+        let record = cf
+            .ensure_dns_cname(zone_id, hostname, tunnel_id)
+            .await
+            .map_err(|e| Error::Cloudflare {
+                source: e,
+                operation: "ensure_dns_cname",
+            })?;
         route_statuses.push(RouteStatus {
             hostname: hostname.to_string(),
             dns_record: record.id,
@@ -203,11 +311,22 @@ async fn sync_dns(
     }
 
     // Remove stale DNS records managed by us but no longer in spec
-    let existing = cf.list_dns_records_by_comment(zone_id).await?;
+    let existing =
+        cf.list_dns_records_by_comment(zone_id)
+            .await
+            .map_err(|e| Error::Cloudflare {
+                source: e,
+                operation: "list_dns_records",
+            })?;
     for record in existing {
         if !desired_hostnames.contains(&record.name.as_str()) {
             tracing::info!(record = %record.name, "removing stale DNS record");
-            cf.delete_dns_record(zone_id, &record.id).await?;
+            cf.delete_dns_record(zone_id, &record.id)
+                .await
+                .map_err(|e| Error::Cloudflare {
+                    source: e,
+                    operation: "delete_stale_dns_record",
+                })?;
         }
     }
 
@@ -221,24 +340,37 @@ async fn cleanup(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Err
     tracing::info!(tunnel = %name, "cleaning up");
 
     // Resolve zone to get IDs
-    let zone_result = cf.get_zone_id(&tunnel.spec.zone).await;
-    if let Ok((zone_id, account_id)) = zone_result {
-        // Delete DNS records managed by us
-        let records = cf.list_dns_records_by_comment(&zone_id).await?;
-        for record in records {
-            cf.delete_dns_record(&zone_id, &record.id).await?;
-        }
+    match cf.get_zone_id(&tunnel.spec.zone).await {
+        Ok((zone_id, account_id)) => {
+            // Delete DNS records managed by us
+            let records = cf
+                .list_dns_records_by_comment(&zone_id)
+                .await
+                .map_err(|e| Error::Cloudflare {
+                    source: e,
+                    operation: "cleanup_list_dns_records",
+                })?;
+            for record in records {
+                cf.delete_dns_record(&zone_id, &record.id)
+                    .await
+                    .map_err(|e| Error::Cloudflare {
+                        source: e,
+                        operation: "cleanup_delete_dns_record",
+                    })?;
+            }
 
-        // Delete tunnel if we have its ID
-        if let Some(ref status) = tunnel.status {
-            if let Some(ref tid) = status.tunnel_id {
-                if let Err(e) = cf.delete_tunnel(&account_id, tid).await {
-                    tracing::warn!(error = %e, "failed to delete tunnel, it may already be gone");
+            // Delete tunnel if we have its ID
+            if let Some(ref status) = tunnel.status {
+                if let Some(ref tid) = status.tunnel_id {
+                    if let Err(e) = cf.delete_tunnel(&account_id, tid).await {
+                        tracing::warn!(error = %e, "failed to delete tunnel, it may already be gone");
+                    }
                 }
             }
         }
-    } else {
-        tracing::warn!("could not resolve zone during cleanup, skipping CF resource cleanup");
+        Err(e) => {
+            tracing::warn!(error = %e, zone = %tunnel.spec.zone, "could not resolve zone during cleanup, skipping CF resource cleanup");
+        }
     }
 
     tracing::info!(tunnel = %name, "cleanup complete");
@@ -247,7 +379,12 @@ async fn cleanup(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Err
 
 pub fn error_policy(_obj: Arc<CloudflareTunnel>, error: &Error, _ctx: Arc<Ctx>) -> Action {
     tracing::error!(%error, "reconciliation failed");
-    Action::requeue(ERROR_REQUEUE)
+    if error.is_transient() {
+        Action::requeue(ERROR_REQUEUE)
+    } else {
+        // Don't retry invalid specs until the resource changes
+        Action::await_change()
+    }
 }
 
 /// Run the controller without the Gateway API watcher.

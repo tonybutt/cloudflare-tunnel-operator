@@ -10,12 +10,14 @@ use crate::crd::CloudflareTunnel;
 ///
 /// The config includes the tunnel ID, credentials-file path, and a single
 /// ingress rule pointing to the gateway service with a catch-all 404.
-pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> ConfigMap {
+pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> Result<ConfigMap, &'static str> {
     let name = tunnel.name_any();
     let namespace = tunnel
         .namespace()
-        .expect("CloudflareTunnel must be namespaced");
-    let owner_ref = tunnel.controller_owner_ref(&()).unwrap();
+        .ok_or("CloudflareTunnel must be namespaced")?;
+    let owner_ref = tunnel
+        .controller_owner_ref(&())
+        .ok_or("failed to build owner reference")?;
 
     let gateway_svc = format!("{name}-gateway.{namespace}.svc.cluster.local");
 
@@ -29,7 +31,7 @@ pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> ConfigMap {
     let mut data = BTreeMap::new();
     data.insert("config.yaml".to_string(), config);
 
-    ConfigMap {
+    Ok(ConfigMap {
         metadata: ObjectMeta {
             name: Some(format!("{name}-config")),
             namespace: Some(namespace),
@@ -39,7 +41,7 @@ pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> ConfigMap {
         },
         data: Some(data),
         ..Default::default()
-    }
+    })
 }
 
 fn managed_by_labels() -> BTreeMap<String, String> {

@@ -31,12 +31,14 @@ pub fn gateway_api_resource() -> ApiResource {
 ///
 /// Each listener gets a name like `listener-0`, port 80, protocol HTTP,
 /// with allowedRoutes from All namespaces.
-pub fn build(tunnel: &CloudflareTunnel) -> DynamicObject {
+pub fn build(tunnel: &CloudflareTunnel) -> Result<DynamicObject, &'static str> {
     let name = tunnel.name_any();
     let namespace = tunnel
         .namespace()
-        .expect("CloudflareTunnel must be namespaced");
-    let owner_ref = tunnel.controller_owner_ref(&()).unwrap();
+        .ok_or("CloudflareTunnel must be namespaced")?;
+    let owner_ref = tunnel
+        .controller_owner_ref(&())
+        .ok_or("failed to build owner reference")?;
 
     let listeners: Vec<serde_json::Value> = tunnel
         .spec
@@ -72,7 +74,7 @@ pub fn build(tunnel: &CloudflareTunnel) -> DynamicObject {
         }
     });
 
-    obj
+    Ok(obj)
 }
 
 fn managed_by_labels() -> BTreeMap<String, String> {

@@ -11,12 +11,14 @@ use crate::crd::CloudflareTunnel;
 ///
 /// The secret is named `{name}-tunnel-credentials` and stores the credentials
 /// under the key `credentials.json`.
-pub fn build(tunnel: &CloudflareTunnel, credentials_json: &[u8]) -> Secret {
+pub fn build(tunnel: &CloudflareTunnel, credentials_json: &[u8]) -> Result<Secret, &'static str> {
     let name = tunnel.name_any();
     let namespace = tunnel
         .namespace()
-        .expect("CloudflareTunnel must be namespaced");
-    let owner_ref = tunnel.controller_owner_ref(&()).unwrap();
+        .ok_or("CloudflareTunnel must be namespaced")?;
+    let owner_ref = tunnel
+        .controller_owner_ref(&())
+        .ok_or("failed to build owner reference")?;
 
     let mut data = BTreeMap::new();
     data.insert(
@@ -24,7 +26,7 @@ pub fn build(tunnel: &CloudflareTunnel, credentials_json: &[u8]) -> Secret {
         ByteString(credentials_json.to_vec()),
     );
 
-    Secret {
+    Ok(Secret {
         metadata: ObjectMeta {
             name: Some(format!("{name}-tunnel-credentials")),
             namespace: Some(namespace),
@@ -34,7 +36,7 @@ pub fn build(tunnel: &CloudflareTunnel, credentials_json: &[u8]) -> Secret {
         },
         data: Some(data),
         ..Default::default()
-    }
+    })
 }
 
 fn managed_by_labels() -> BTreeMap<String, String> {
