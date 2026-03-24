@@ -18,7 +18,7 @@ A Kubernetes operator that manages Cloudflare Tunnels as native cluster resource
 Apply the all-in-one manifest (namespace, CRD, RBAC, and controller deployment):
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/tonybutt/cloudflare-tunnel-operator/main/install.yaml
+kubectl apply -f https://raw.githubusercontent.com/tonybutt/cloudflare-tunnel-operator/main/deploy/manifests/install.yaml
 ```
 
 ### Kustomize

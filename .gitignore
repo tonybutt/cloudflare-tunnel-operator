@@ -2,3 +2,4 @@
 /result
 .direnv
 .env
+.pre-commit-config.yaml
