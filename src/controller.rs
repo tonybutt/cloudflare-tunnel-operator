@@ -105,16 +105,7 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
         )
         .await?;
 
-    // 7. Sync Gateway
-    let gateway = resources::gateway::build(&tunnel);
-    let gw_ar = resources::gateway::gateway_api_resource();
-    let gw_api: Api<DynamicObject> = Api::namespaced_with(client.clone(), &ns, &gw_ar);
-    let pp = PatchParams::apply(MANAGER).force();
-    gw_api
-        .patch(&format!("{name}-gateway"), &pp, &Patch::Apply(&gateway))
-        .await?;
-
-    // 8. Update status
+    // 7. Update status (before Gateway sync, so tunnel_id is persisted even if Gateway CRD is missing)
     let status = CloudflareTunnelStatus {
         tunnel_id: Some(tunnel_id),
         conditions: vec![Condition {
@@ -140,6 +131,21 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
     tunnel_api
         .patch_status(&name, &pp, &Patch::Apply(&status_patch))
         .await?;
+
+    // 8. Sync Gateway (best-effort — Gateway API CRDs may not be installed)
+    let gateway = resources::gateway::build(&tunnel);
+    let gw_ar = resources::gateway::gateway_api_resource();
+    let gw_api: Api<DynamicObject> = Api::namespaced_with(client.clone(), &ns, &gw_ar);
+    let pp = PatchParams::apply(MANAGER).force();
+    match gw_api
+        .patch(&format!("{name}-gateway"), &pp, &Patch::Apply(&gateway))
+        .await
+    {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(tunnel = %name, error = %e, "failed to sync Gateway (CRD may not be installed)");
+        }
+    }
 
     tracing::info!(tunnel = %name, "reconciled successfully");
     Ok(Action::requeue(REQUEUE_INTERVAL))
