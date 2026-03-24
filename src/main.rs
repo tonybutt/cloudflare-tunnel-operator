@@ -2,6 +2,7 @@ use kube::CustomResourceExt;
 
 mod cloudflare;
 mod crd;
+mod resources;
 
 fn main() {
     // Print CRD YAML for generation
