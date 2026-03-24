@@ -1,0 +1,193 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "CustomResourceDefinition",
+  "metadata": { "name": "cloudflaretunnels.tunnels.abutt.dev" },
+  "spec":
+    {
+      "group": "tunnels.abutt.dev",
+      "names":
+        {
+          "categories": [],
+          "kind": "CloudflareTunnel",
+          "plural": "cloudflaretunnels",
+          "shortNames": ["cft"],
+          "singular": "cloudflaretunnel",
+        },
+      "scope": "Namespaced",
+      "versions":
+        [
+          {
+            "additionalPrinterColumns":
+              [
+                {
+                  "jsonPath": ".status.tunnelId",
+                  "name": "Tunnel ID",
+                  "type": "string",
+                },
+                {
+                  "jsonPath": ".status.conditions[?(@.type=='Ready')].status",
+                  "name": "Ready",
+                  "type": "string",
+                },
+              ],
+            "name": "v1alpha1",
+            "schema":
+              {
+                "openAPIV3Schema":
+                  {
+                    "description": "Auto-generated derived type for CloudflareTunnelSpec via `CustomResource`",
+                    "properties":
+                      {
+                        "spec":
+                          {
+                            "properties":
+                              {
+                                "credentials_ref":
+                                  {
+                                    "description": "Reference to a Secret containing a Cloudflare API token.\nFalls back to the controller-wide default if not set.",
+                                    "nullable": true,
+                                    "properties":
+                                      {
+                                        "name":
+                                          {
+                                            "description": "Name of the Secret.",
+                                            "type": "string",
+                                          },
+                                        "namespace":
+                                          {
+                                            "description": "Namespace of the Secret.",
+                                            "type": "string",
+                                          },
+                                      },
+                                    "required": ["name", "namespace"],
+                                    "type": "object",
+                                  },
+                                "gateway":
+                                  {
+                                    "description": "Gateway configuration.",
+                                    "properties":
+                                      {
+                                        "gateway_class_name":
+                                          {
+                                            "description": 'GatewayClass to use (e.g., "cilium").',
+                                            "type": "string",
+                                          },
+                                        "listeners":
+                                          {
+                                            "description": "Hostnames the tunnel serves. Each gets a DNS record and Gateway listener.",
+                                            "items":
+                                              {
+                                                "properties":
+                                                  {
+                                                    "hostname":
+                                                      {
+                                                        "description": 'Hostname for this listener (e.g., "blog.abutt.dev" or "*.abutt.dev").',
+                                                        "type": "string",
+                                                      },
+                                                  },
+                                                "required": ["hostname"],
+                                                "type": "object",
+                                              },
+                                            "type": "array",
+                                          },
+                                      },
+                                    "required":
+                                      ["gateway_class_name", "listeners"],
+                                    "type": "object",
+                                  },
+                                "image":
+                                  {
+                                    "description": "cloudflared container image override.",
+                                    "nullable": true,
+                                    "type": "string",
+                                  },
+                                "zone":
+                                  {
+                                    "description": "Cloudflare zone name for DNS record management.",
+                                    "type": "string",
+                                  },
+                              },
+                            "required": ["gateway", "zone"],
+                            "type": "object",
+                          },
+                        "status":
+                          {
+                            "nullable": true,
+                            "properties":
+                              {
+                                "conditions":
+                                  {
+                                    "description": "Standard Kubernetes conditions.",
+                                    "items":
+                                      {
+                                        "properties":
+                                          {
+                                            "lastTransitionTime":
+                                              {
+                                                "format": "date-time",
+                                                "type": "string",
+                                              },
+                                            "message": { "type": "string" },
+                                            "observedGeneration":
+                                              {
+                                                "default": 0,
+                                                "format": "int64",
+                                                "type": "integer",
+                                              },
+                                            "reason": { "type": "string" },
+                                            "status": { "type": "string" },
+                                            "type": { "type": "string" },
+                                          },
+                                        "required":
+                                          [
+                                            "lastTransitionTime",
+                                            "message",
+                                            "reason",
+                                            "status",
+                                            "type",
+                                          ],
+                                        "type": "object",
+                                      },
+                                    "type": "array",
+                                    "x-kubernetes-list-map-keys": ["type"],
+                                    "x-kubernetes-list-type": "map",
+                                  },
+                                "routes":
+                                  {
+                                    "description": "Per-route status.",
+                                    "items":
+                                      {
+                                        "properties":
+                                          {
+                                            "dns_record": { "type": "string" },
+                                            "hostname": { "type": "string" },
+                                            "status": { "type": "string" },
+                                          },
+                                        "required":
+                                          ["dns_record", "hostname", "status"],
+                                        "type": "object",
+                                      },
+                                    "type": "array",
+                                  },
+                                "tunnel_id":
+                                  {
+                                    "description": "The Cloudflare tunnel ID.",
+                                    "nullable": true,
+                                    "type": "string",
+                                  },
+                              },
+                            "type": "object",
+                          },
+                      },
+                    "required": ["spec"],
+                    "title": "CloudflareTunnel",
+                    "type": "object",
+                  },
+              },
+            "served": true,
+            "storage": true,
+            "subresources": { "status": {} },
+          },
+        ],
+    },
+}
