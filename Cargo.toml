@@ -33,6 +33,7 @@ rand = "0.9"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
+cloudflared-config-macro = { path = "cloudflared-config-macro" }
 
 [dev-dependencies]
 kube = { version = "3.1", features = ["runtime", "client", "derive", "rustls-tls"], default-features = false }

@@ -4,7 +4,7 @@ use k8s_openapi::api::core::v1::ConfigMap;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{Resource, ResourceExt};
 
-use crate::cloudflared_config::{CloudflaredConfig, IngressRule};
+use crate::cloudflared_config::{CloudflaredConfigFile, UnvalidatedIngressRule};
 use crate::crd::CloudflareTunnel;
 
 /// Builds a ConfigMap containing the cloudflared configuration.
@@ -22,12 +22,12 @@ pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> Result<ConfigMap, &'
 
     let gateway_svc = format!("{name}-gateway.{namespace}.svc.cluster.local");
 
-    let config = CloudflaredConfig {
+    let config = CloudflaredConfigFile {
         tunnel: tunnel_id.to_string(),
         credentials_file: "/etc/cloudflared/creds/credentials.json".to_string(),
-        ingress: vec![IngressRule {
-            hostname: None,
+        ingress: vec![UnvalidatedIngressRule {
             service: format!("http://{gateway_svc}"),
+            ..Default::default()
         }],
     };
 

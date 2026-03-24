@@ -190,6 +190,7 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
+ "cloudflared-config-macro",
  "futures",
  "k8s-openapi",
  "kube",
@@ -203,6 +204,15 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "cloudflared-config-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
