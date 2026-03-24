@@ -6,6 +6,17 @@
   rustToolchain,
 }:
 
+let
+  generate-manifests = pkgs.writeShellApplication {
+    name = "generate-manifests";
+    runtimeInputs = [
+      rustToolchain
+      pkgs.kustomize
+      pkgs.git
+    ];
+    text = builtins.readFile ../scripts/generate.sh;
+  };
+in
 git-hooks.lib.${system}.run {
   src = ../.;
   hooks = {
@@ -20,6 +31,13 @@ git-hooks.lib.${system}.run {
         cargo = rustToolchain;
         clippy = rustToolchain;
       };
+    };
+    generate-manifests = {
+      enable = true;
+      name = "generate-manifests";
+      entry = "${generate-manifests}/bin/generate-manifests";
+      files = "(deploy/.*\\.yaml|src/crd\\.rs)$";
+      pass_filenames = false;
     };
     commitizen.enable = true;
   };

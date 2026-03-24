@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 echo "Generating CRD from Rust types..."
 cargo run -q -- crd > "${REPO_ROOT}/deploy/crd.yaml"
