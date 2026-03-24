@@ -1,5 +1,6 @@
 use kube::CustomResourceExt;
 
+mod cloudflare;
 mod crd;
 
 fn main() {
