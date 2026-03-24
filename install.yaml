@@ -1,3 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflare-operator
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -50,11 +55,15 @@ spec:
                       description: GatewayClass to use (e.g., "cilium").
                       type: string
                     listeners:
-                      description: Hostnames the tunnel serves. Each gets a DNS record and Gateway listener.
+                      description:
+                        Hostnames the tunnel serves. Each gets a DNS record
+                        and Gateway listener.
                       items:
                         properties:
                           hostname:
-                            description: Hostname for this listener (e.g., "blog.abutt.dev" or "*.abutt.dev").
+                            description:
+                              Hostname for this listener (e.g., "blog.abutt.dev"
+                              or "*.abutt.dev").
                             type: string
                         required:
                           - hostname
@@ -137,3 +146,134 @@ spec:
       storage: true
       subresources:
         status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudflare-tunnel-operator
+  namespace: cloudflare-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudflare-tunnel-operator
+rules:
+  - apiGroups:
+      - tunnels.abutt.dev
+    resources:
+      - cloudflaretunnels
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - tunnels.abutt.dev
+    resources:
+      - cloudflaretunnels/status
+    verbs:
+      - get
+      - patch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - gateway.networking.k8s.io
+    resources:
+      - gateways
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudflare-tunnel-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudflare-tunnel-operator
+subjects:
+  - kind: ServiceAccount
+    name: cloudflare-tunnel-operator
+    namespace: cloudflare-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel-operator
+  name: cloudflare-tunnel-operator
+  namespace: cloudflare-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflare-tunnel-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudflare-tunnel-operator
+    spec:
+      containers:
+        - env:
+            - name: CF_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: token
+                  name: cloudflare-api-token
+            - name: RUST_LOG
+              value: cloudflare_tunnel_operator=info
+          image: ghcr.io/tonybutt/cloudflare-tunnel-operator:latest
+          name: operator
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+      serviceAccountName: cloudflare-tunnel-operator

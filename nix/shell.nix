@@ -10,6 +10,7 @@ pkgs.mkShell {
   packages = with pkgs; [
     rustToolchain
     kubectl
+    kustomize
     gh
     git
     kind

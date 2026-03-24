@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
     if args.get(1).map(|s| s.as_str()) == Some("crd") {
         print!(
             "{}",
-            serde_json::to_string_pretty(&crd::CloudflareTunnel::crd()).unwrap()
+            serde_yaml::to_string(&crd::CloudflareTunnel::crd()).unwrap()
         );
         return Ok(());
     }

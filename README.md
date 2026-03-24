@@ -13,29 +13,53 @@ A Kubernetes operator that manages Cloudflare Tunnels as native cluster resource
 
 ## Installation
 
-### 1. Install the CRD
+### Quick install
+
+Apply the all-in-one manifest (namespace, CRD, RBAC, and controller deployment):
 
 ```bash
-kubectl apply -f deploy/crd.yaml
+kubectl apply -f https://raw.githubusercontent.com/tonybutt/cloudflare-tunnel-operator/main/install.yaml
 ```
 
-### 2. Create the API token Secret
+### Kustomize
+
+Reference the deploy directory as a remote base:
+
+```yaml
+# kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://github.com/tonybutt/cloudflare-tunnel-operator//deploy?ref=main
+```
+
+Or apply directly:
 
 ```bash
-kubectl create namespace cloudflare-operator
+kubectl apply -k https://github.com/tonybutt/cloudflare-tunnel-operator/deploy
+```
 
+### Manual
+
+Apply the individual manifests from the `deploy/` directory:
+
+```bash
+kubectl apply -f deploy/namespace.yaml
+kubectl apply -f deploy/crd.yaml
+kubectl apply -f deploy/rbac.yaml
+kubectl apply -f deploy/deployment.yaml
+```
+
+### Create the API token Secret
+
+Whichever method you used above, create the API token secret in the operator namespace:
+
+```bash
 kubectl create secret generic cloudflare-api-token \
   --namespace cloudflare-operator \
   --from-literal=token=<YOUR_CLOUDFLARE_API_TOKEN>
 ```
-
-### 3. Deploy the controller
-
-```bash
-kubectl apply -f deploy/
-```
-
-This applies `crd.yaml`, `rbac.yaml`, and `deployment.yaml`. The operator runs in the `cloudflare-operator` namespace.
 
 ### 4. Create a CloudflareTunnel resource
 
@@ -147,8 +171,8 @@ nix develop -c cargo test
 # Run e2e tests (requires kind in PATH)
 nix develop -c cargo test --test e2e
 
-# Regenerate the CRD from Rust types
-nix develop -c cargo run -- crd > deploy/crd.yaml
+# Regenerate deploy/crd.yaml + install.yaml from Rust types
+./scripts/generate.sh
 ```
 
 See [docs/architecture.md](docs/architecture.md) for an overview of how the operator works internally.
