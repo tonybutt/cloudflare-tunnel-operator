@@ -5,8 +5,8 @@ use k8s_openapi::api::core::v1::{ConfigMap, Secret};
 use kube::api::{Api, DeleteParams, PostParams};
 
 use crate::{
-    TEST_ZONE, cf_token, cleanup_cloudflare, setup_kind_cluster, start_controller,
-    teardown_kind_cluster,
+    TEST_ZONE, cf_token, cleanup_cloudflare, create_gateway_service, deploy_nginx,
+    setup_kind_cluster, start_controller, teardown_kind_cluster,
 };
 
 fn test_tunnel_cr(name: &str, namespace: &str) -> CloudflareTunnel {
@@ -71,6 +71,28 @@ where
             Ok(None) => return true,
             _ => tokio::time::sleep(std::time::Duration::from_millis(500)).await,
         }
+    }
+}
+
+/// Wait for a Deployment to have at least one ready replica.
+async fn wait_for_deployment_ready(
+    deploy_api: &Api<Deployment>,
+    name: &str,
+    timeout_secs: u64,
+) -> bool {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    loop {
+        if tokio::time::Instant::now() > deadline {
+            return false;
+        }
+        if let Ok(Some(deploy)) = deploy_api.get_opt(name).await {
+            if let Some(status) = deploy.status {
+                if status.ready_replicas.unwrap_or(0) > 0 {
+                    return true;
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 }
 
@@ -140,6 +162,48 @@ async fn verify_tunnel_gone(token: &str, tunnel_name: &str) -> bool {
     verify_tunnel_exists(token, tunnel_name).await.is_none()
 }
 
+/// Curl the site through Cloudflare's edge with retry + backoff.
+///
+/// Returns true if we get an HTTP 200 with nginx content within the timeout.
+async fn verify_site_reachable(url: &str, timeout_secs: u64) -> bool {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("failed to build HTTP client");
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    let mut interval_secs = 5;
+
+    loop {
+        if tokio::time::Instant::now() > deadline {
+            eprintln!("reachability check timed out after {timeout_secs}s");
+            return false;
+        }
+
+        match http.get(url).send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                eprintln!("GET {url} -> {status} (body len={})", body.len());
+
+                if status.is_success() && body.contains("nginx") {
+                    eprintln!("site is reachable with nginx content");
+                    return true;
+                }
+            }
+            Err(e) => {
+                eprintln!("GET {url} failed: {e}");
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+        // Cap backoff at 10s
+        if interval_secs < 10 {
+            interval_secs += 2;
+        }
+    }
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_tunnel_full_lifecycle() {
@@ -147,6 +211,7 @@ async fn test_tunnel_full_lifecycle() {
     let token = cf_token();
     let tunnel_name = "e2e-lifecycle";
     let test_hostname = format!("e2e-test.{TEST_ZONE}");
+    let test_url = format!("https://{test_hostname}");
 
     // Safety net: clean up any leftover resources from a previous failed run
     cleanup_cloudflare(&token, tunnel_name).await;
@@ -160,7 +225,22 @@ async fn test_tunnel_full_lifecycle() {
     let cm_api: Api<ConfigMap> = Api::namespaced(client.clone(), ns);
     let deploy_api: Api<Deployment> = Api::namespaced(client.clone(), ns);
 
-    // === CREATE ===
+    // === DEPLOY NGINX BACKEND ===
+    eprintln!("--- Deploying nginx backend ---");
+    deploy_nginx(&client, ns).await;
+
+    // Wait for nginx to be ready before proceeding
+    assert!(
+        wait_for_deployment_ready(&deploy_api, "nginx", 120).await,
+        "nginx Deployment did not become ready within timeout"
+    );
+    eprintln!("nginx is ready");
+
+    // === CREATE GATEWAY SERVICE (workaround for no Gateway controller in kind) ===
+    eprintln!("--- Creating gateway service ---");
+    create_gateway_service(&client, tunnel_name, ns).await;
+
+    // === CREATE CLOUDFLARE TUNNEL ===
     eprintln!("--- Creating CloudflareTunnel CR ---");
     let cr = test_tunnel_cr(tunnel_name, ns);
     tunnel_api
@@ -228,6 +308,20 @@ async fn test_tunnel_full_lifecycle() {
     assert!(
         verify_dns_record_exists(&token, &test_hostname).await,
         "DNS CNAME record should exist in Cloudflare"
+    );
+
+    // === WAIT FOR CLOUDFLARED TO CONNECT ===
+    eprintln!("--- Waiting for cloudflared deployment to be ready ---");
+    assert!(
+        wait_for_deployment_ready(&deploy_api, &format!("{tunnel_name}-cloudflared"), 120).await,
+        "cloudflared Deployment did not become ready within timeout"
+    );
+
+    // === VERIFY SITE IS REACHABLE THROUGH CLOUDFLARE ===
+    eprintln!("--- Verifying site reachability at {test_url} ---");
+    assert!(
+        verify_site_reachable(&test_url, 120).await,
+        "site was not reachable through the Cloudflare tunnel within timeout"
     );
 
     // === DELETE ===
