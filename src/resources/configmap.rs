@@ -23,8 +23,7 @@ pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> ConfigMap {
         "tunnel: {tunnel_id}\n\
          credentials-file: /etc/cloudflared/creds/credentials.json\n\
          ingress:\n\
-         - service: http://{gateway_svc}\n\
-         - service: http_status:404\n"
+         - service: http://{gateway_svc}\n"
     );
 
     let mut data = BTreeMap::new();
