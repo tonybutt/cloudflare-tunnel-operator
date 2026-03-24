@@ -58,3 +58,59 @@ fn managed_by_labels() -> BTreeMap<String, String> {
     );
     labels
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crd::*;
+
+    fn test_tunnel(name: &str, ns: &str) -> CloudflareTunnel {
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "tunnels.abutt.dev/v1alpha1",
+            "kind": "CloudflareTunnel",
+            "metadata": { "name": name, "namespace": ns, "uid": "test-uid" },
+            "spec": {
+                "zone": "example.com",
+                "gateway": {
+                    "gateway_class_name": "cilium",
+                    "listeners": [{"hostname": "app.example.com"}]
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn configmap_has_correct_name() {
+        let tunnel = test_tunnel("web", "prod");
+        let cm = build(&tunnel, "tunnel-123").unwrap();
+        assert_eq!(cm.metadata.name.unwrap(), "web-config");
+    }
+
+    #[test]
+    fn configmap_contains_tunnel_id() {
+        let tunnel = test_tunnel("web", "default");
+        let cm = build(&tunnel, "abc-123").unwrap();
+        let data = cm.data.unwrap();
+        let config = &data["config.yaml"];
+        assert!(config.contains("tunnel: abc-123"));
+    }
+
+    #[test]
+    fn configmap_points_to_gateway_service() {
+        let tunnel = test_tunnel("web", "prod");
+        let cm = build(&tunnel, "tid").unwrap();
+        let data = cm.data.unwrap();
+        let config = &data["config.yaml"];
+        assert!(config.contains("http://web-gateway.prod.svc.cluster.local"));
+    }
+
+    #[test]
+    fn configmap_has_credentials_path() {
+        let tunnel = test_tunnel("t", "default");
+        let cm = build(&tunnel, "tid").unwrap();
+        let data = cm.data.unwrap();
+        let config = &data["config.yaml"];
+        assert!(config.contains("credentials-file: /etc/cloudflared/creds/credentials.json"));
+    }
+}

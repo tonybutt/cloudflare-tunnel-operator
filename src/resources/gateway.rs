@@ -85,3 +85,66 @@ fn managed_by_labels() -> BTreeMap<String, String> {
     );
     labels
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crd::*;
+
+    fn test_tunnel(name: &str, ns: &str, hostnames: &[&str]) -> CloudflareTunnel {
+        let listeners: Vec<serde_json::Value> = hostnames
+            .iter()
+            .map(|h| serde_json::json!({"hostname": h}))
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "tunnels.abutt.dev/v1alpha1",
+            "kind": "CloudflareTunnel",
+            "metadata": { "name": name, "namespace": ns, "uid": "uid-1" },
+            "spec": {
+                "zone": "example.com",
+                "gateway": {
+                    "gateway_class_name": "cilium",
+                    "listeners": listeners
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn gateway_has_correct_name() {
+        let tunnel = test_tunnel("web", "default", &["app.example.com"]);
+        let gw = build(&tunnel).unwrap();
+        assert_eq!(gw.metadata.name.as_deref().unwrap(), "web-gateway");
+    }
+
+    #[test]
+    fn gateway_has_listeners_for_each_hostname() {
+        let tunnel = test_tunnel(
+            "web",
+            "default",
+            &["a.example.com", "b.example.com", "*.example.com"],
+        );
+        let gw = build(&tunnel).unwrap();
+        let listeners = gw.data["spec"]["listeners"].as_array().unwrap();
+        assert_eq!(listeners.len(), 3);
+        assert_eq!(listeners[0]["hostname"], "a.example.com");
+        assert_eq!(listeners[1]["hostname"], "b.example.com");
+        assert_eq!(listeners[2]["hostname"], "*.example.com");
+    }
+
+    #[test]
+    fn gateway_uses_correct_gateway_class() {
+        let tunnel = test_tunnel("web", "default", &["app.example.com"]);
+        let gw = build(&tunnel).unwrap();
+        assert_eq!(gw.data["spec"]["gatewayClassName"], "cilium");
+    }
+
+    #[test]
+    fn gateway_allows_routes_from_all_namespaces() {
+        let tunnel = test_tunnel("web", "default", &["app.example.com"]);
+        let gw = build(&tunnel).unwrap();
+        let allowed = &gw.data["spec"]["listeners"][0]["allowedRoutes"]["namespaces"]["from"];
+        assert_eq!(allowed, "All");
+    }
+}

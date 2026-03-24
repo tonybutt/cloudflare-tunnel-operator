@@ -115,3 +115,81 @@ fn managed_by_labels() -> BTreeMap<String, String> {
     );
     labels
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crd::*;
+
+    fn test_tunnel(name: &str, ns: &str) -> CloudflareTunnel {
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "tunnels.abutt.dev/v1alpha1",
+            "kind": "CloudflareTunnel",
+            "metadata": { "name": name, "namespace": ns, "uid": "uid-1" },
+            "spec": {
+                "zone": "example.com",
+                "gateway": {
+                    "gateway_class_name": "cilium",
+                    "listeners": [{"hostname": "app.example.com"}]
+                }
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn deployment_has_correct_name() {
+        let tunnel = test_tunnel("web", "default");
+        let deploy = build(&tunnel).unwrap();
+        assert_eq!(deploy.metadata.name.unwrap(), "web-cloudflared");
+    }
+
+    #[test]
+    fn deployment_uses_default_image() {
+        let tunnel = test_tunnel("web", "default");
+        let deploy = build(&tunnel).unwrap();
+        let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
+        assert_eq!(container.image.as_deref().unwrap(), DEFAULT_IMAGE);
+    }
+
+    #[test]
+    fn deployment_uses_custom_image() {
+        let mut tunnel = test_tunnel("web", "default");
+        tunnel.spec.image = Some("cloudflare/cloudflared:2025.1.0".to_string());
+        let deploy = build(&tunnel).unwrap();
+        let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
+        assert_eq!(
+            container.image.as_deref().unwrap(),
+            "cloudflare/cloudflared:2025.1.0"
+        );
+    }
+
+    #[test]
+    fn deployment_mounts_creds_and_config() {
+        let tunnel = test_tunnel("web", "default");
+        let deploy = build(&tunnel).unwrap();
+        let spec = deploy.spec.unwrap().template.spec.unwrap();
+        let mounts = spec.containers[0].volume_mounts.as_ref().unwrap();
+        assert_eq!(mounts.len(), 2);
+        assert!(mounts.iter().any(|m| m.name == "creds"));
+        assert!(mounts.iter().any(|m| m.name == "config"));
+    }
+
+    #[test]
+    fn deployment_references_correct_secret() {
+        let tunnel = test_tunnel("web", "default");
+        let deploy = build(&tunnel).unwrap();
+        let volumes = deploy.spec.unwrap().template.spec.unwrap().volumes.unwrap();
+        let creds_vol = volumes.iter().find(|v| v.name == "creds").unwrap();
+        assert_eq!(
+            creds_vol
+                .secret
+                .as_ref()
+                .unwrap()
+                .secret_name
+                .as_deref()
+                .unwrap(),
+            "web-tunnel-credentials"
+        );
+    }
+}
