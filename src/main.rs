@@ -1,10 +1,6 @@
+use cloudflare_tunnel_operator::*;
 use kube::CustomResourceExt;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
-
-mod cloudflare;
-mod controller;
-mod crd;
-mod resources;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -32,7 +28,10 @@ async fn main() -> anyhow::Result<()> {
     let client = kube::Client::try_default().await?;
     let cf = cloudflare::client::CloudflareClient::new(cf_token);
 
-    let ctx = controller::Ctx { client, cf };
+    let ctx = controller::Ctx {
+        client,
+        cf: Box::new(cf),
+    };
     controller::run(ctx).await;
 
     Ok(())

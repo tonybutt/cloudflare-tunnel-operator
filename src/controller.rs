@@ -10,7 +10,7 @@ use kube::runtime::controller::Action;
 use kube::runtime::finalizer::{Event as Finalizer, finalizer};
 use kube::{Client, ResourceExt};
 
-use crate::cloudflare::client::CloudflareClient;
+use crate::cloudflare::client::CloudflareApi;
 use crate::crd::{CloudflareTunnel, CloudflareTunnelStatus, RouteStatus};
 use crate::resources;
 
@@ -39,7 +39,7 @@ impl From<kube::Error> for Error {
 
 pub struct Ctx {
     pub client: Client,
-    pub cf: CloudflareClient,
+    pub cf: Box<dyn CloudflareApi>,
 }
 
 pub async fn reconcile(obj: Arc<CloudflareTunnel>, ctx: Arc<Ctx>) -> Result<Action, Error> {
@@ -60,7 +60,7 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
     let name = tunnel.name_any();
     let ns = tunnel.namespace().ok_or(Error::MissingField("namespace"))?;
     let client = &ctx.client;
-    let cf = &ctx.cf;
+    let cf = ctx.cf.as_ref();
 
     // 1. Resolve zone
     let (zone_id, account_id) = cf.get_zone_id(&tunnel.spec.zone).await?;
@@ -147,7 +147,7 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
 
 async fn ensure_tunnel(
     tunnel: &CloudflareTunnel,
-    cf: &CloudflareClient,
+    cf: &dyn CloudflareApi,
     account_id: &str,
 ) -> Result<(String, Option<String>), Error> {
     let name = tunnel.name_any();
@@ -172,7 +172,7 @@ async fn ensure_tunnel(
 }
 
 async fn sync_dns(
-    cf: &CloudflareClient,
+    cf: &dyn CloudflareApi,
     zone_id: &str,
     tunnel_id: &str,
     tunnel: &CloudflareTunnel,
@@ -210,7 +210,7 @@ async fn sync_dns(
 
 async fn cleanup(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error> {
     let name = tunnel.name_any();
-    let cf = &ctx.cf;
+    let cf = ctx.cf.as_ref();
 
     tracing::info!(tunnel = %name, "cleaning up");
 
@@ -242,6 +242,35 @@ async fn cleanup(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Err
 pub fn error_policy(_obj: Arc<CloudflareTunnel>, error: &Error, _ctx: Arc<Ctx>) -> Action {
     tracing::error!(%error, "reconciliation failed");
     Action::requeue(ERROR_REQUEUE)
+}
+
+/// Run the controller without the Gateway API watcher.
+///
+/// Useful for test environments where Gateway API CRDs are not installed.
+pub async fn run_no_gateway(ctx: Ctx) {
+    let client = ctx.client.clone();
+    let tunnel_api: Api<CloudflareTunnel> = Api::all(client.clone());
+    let deploy_api: Api<Deployment> = Api::all(client.clone());
+    let secret_api: Api<Secret> = Api::all(client.clone());
+    let cm_api: Api<ConfigMap> = Api::all(client.clone());
+
+    let ctx = Arc::new(ctx);
+
+    kube::runtime::controller::Controller::new(
+        tunnel_api,
+        kube::runtime::watcher::Config::default(),
+    )
+    .owns(deploy_api, kube::runtime::watcher::Config::default())
+    .owns(secret_api, kube::runtime::watcher::Config::default())
+    .owns(cm_api, kube::runtime::watcher::Config::default())
+    .run(reconcile, error_policy, ctx)
+    .for_each(|res| async move {
+        match res {
+            Ok((obj, _)) => tracing::debug!(object = %obj, "reconcile ok"),
+            Err(e) => tracing::warn!(error = %e, "reconcile stream error"),
+        }
+    })
+    .await;
 }
 
 pub async fn run(ctx: Ctx) {

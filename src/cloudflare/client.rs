@@ -5,6 +5,38 @@ use rand::Rng;
 const CF_API_BASE: &str = "https://api.cloudflare.com/client/v4";
 const TUNNEL_COMMENT: &str = "Managed by cloudflare-tunnel-operator";
 
+#[async_trait::async_trait]
+pub trait CloudflareApi: Send + Sync {
+    async fn get_zone_id(&self, zone_name: &str) -> Result<(String, String), CloudflareError>;
+    async fn create_tunnel(
+        &self,
+        account_id: &str,
+        name: &str,
+    ) -> Result<(Tunnel, String), CloudflareError>;
+    async fn delete_tunnel(&self, account_id: &str, tunnel_id: &str)
+    -> Result<(), CloudflareError>;
+    async fn get_tunnel(
+        &self,
+        account_id: &str,
+        tunnel_id: &str,
+    ) -> Result<Option<Tunnel>, CloudflareError>;
+    async fn ensure_dns_cname(
+        &self,
+        zone_id: &str,
+        hostname: &str,
+        tunnel_id: &str,
+    ) -> Result<DnsRecord, CloudflareError>;
+    async fn delete_dns_record(
+        &self,
+        zone_id: &str,
+        record_id: &str,
+    ) -> Result<(), CloudflareError>;
+    async fn list_dns_records_by_comment(
+        &self,
+        zone_id: &str,
+    ) -> Result<Vec<DnsRecord>, CloudflareError>;
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CloudflareError {
     #[error("HTTP error: {0}")]
@@ -30,8 +62,11 @@ impl CloudflareClient {
     fn auth_header(&self) -> String {
         format!("Bearer {}", self.token)
     }
+}
 
-    pub async fn get_zone_id(&self, zone_name: &str) -> Result<(String, String), CloudflareError> {
+#[async_trait::async_trait]
+impl CloudflareApi for CloudflareClient {
+    async fn get_zone_id(&self, zone_name: &str) -> Result<(String, String), CloudflareError> {
         let resp: CfListResponse<Zone> = self
             .http
             .get(format!("{CF_API_BASE}/zones"))
@@ -52,7 +87,7 @@ impl CloudflareClient {
         Ok((zone.id, zone.account.id))
     }
 
-    pub async fn create_tunnel(
+    async fn create_tunnel(
         &self,
         account_id: &str,
         name: &str,
@@ -84,7 +119,7 @@ impl CloudflareClient {
         Ok((resp.result, creds.to_string()))
     }
 
-    pub async fn delete_tunnel(
+    async fn delete_tunnel(
         &self,
         account_id: &str,
         tunnel_id: &str,
@@ -111,7 +146,7 @@ impl CloudflareClient {
         Ok(())
     }
 
-    pub async fn get_tunnel(
+    async fn get_tunnel(
         &self,
         account_id: &str,
         tunnel_id: &str,
@@ -133,7 +168,7 @@ impl CloudflareClient {
         Ok(Some(body.result))
     }
 
-    pub async fn ensure_dns_cname(
+    async fn ensure_dns_cname(
         &self,
         zone_id: &str,
         hostname: &str,
@@ -180,7 +215,7 @@ impl CloudflareClient {
         Ok(resp.result)
     }
 
-    pub async fn delete_dns_record(
+    async fn delete_dns_record(
         &self,
         zone_id: &str,
         record_id: &str,
@@ -197,7 +232,7 @@ impl CloudflareClient {
         Ok(())
     }
 
-    pub async fn list_dns_records_by_comment(
+    async fn list_dns_records_by_comment(
         &self,
         zone_id: &str,
     ) -> Result<Vec<DnsRecord>, CloudflareError> {
