@@ -4,6 +4,7 @@ use k8s_openapi::api::core::v1::ConfigMap;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::{Resource, ResourceExt};
 
+use crate::cloudflared_config::{CloudflaredConfig, IngressRule};
 use crate::crd::CloudflareTunnel;
 
 /// Builds a ConfigMap containing the cloudflared configuration.
@@ -21,15 +22,20 @@ pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> Result<ConfigMap, &'
 
     let gateway_svc = format!("{name}-gateway.{namespace}.svc.cluster.local");
 
-    let config = format!(
-        "tunnel: {tunnel_id}\n\
-         credentials-file: /etc/cloudflared/creds/credentials.json\n\
-         ingress:\n\
-         - service: http://{gateway_svc}\n"
-    );
+    let config = CloudflaredConfig {
+        tunnel: tunnel_id.to_string(),
+        credentials_file: "/etc/cloudflared/creds/credentials.json".to_string(),
+        ingress: vec![IngressRule {
+            hostname: None,
+            service: format!("http://{gateway_svc}"),
+        }],
+    };
+
+    let config_yaml =
+        serde_yaml::to_string(&config).map_err(|_| "failed to serialize cloudflared config")?;
 
     let mut data = BTreeMap::new();
-    data.insert("config.yaml".to_string(), config);
+    data.insert("config.yaml".to_string(), config_yaml);
 
     Ok(ConfigMap {
         metadata: ObjectMeta {
