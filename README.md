@@ -40,6 +40,36 @@ Or apply directly:
 kubectl apply -k https://github.com/tonybutt/cloudflare-tunnel-operator/deploy
 ```
 
+### Flux CD
+
+Create a `GitRepository` source and a `Kustomization` that points at the `deploy/` directory:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: cloudflare-tunnel-operator
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://github.com/tonybutt/cloudflare-tunnel-operator
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cloudflare-tunnel-operator
+  namespace: flux-system
+spec:
+  interval: 1h
+  sourceRef:
+    kind: GitRepository
+    name: cloudflare-tunnel-operator
+  path: ./deploy
+  prune: true
+```
+
 ### Manual
 
 Apply the individual manifests from the `deploy/` directory:
