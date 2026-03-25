@@ -36,7 +36,7 @@
   e2e-tests = {
     enable = true;
     name = "e2e-tests";
-    entry = "${rustToolchain}/bin/cargo test --test e2e -- --ignored --test-threads=1";
+    entry = hookBin.e2e-tests;
     pass_filenames = false;
     always_run = true;
     stages = [ "pre-push" ];
