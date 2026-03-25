@@ -3,3 +3,4 @@
 .direnv
 .env
 .pre-commit-config.yaml
+.claude/
