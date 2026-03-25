@@ -1,6 +1,4 @@
-{ pkgs, treefmt-nix }:
-
-treefmt-nix.lib.evalModule pkgs {
+{
   projectRootFile = "flake.nix";
 
   programs = {

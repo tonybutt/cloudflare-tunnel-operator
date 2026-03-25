@@ -1,44 +1,44 @@
+# Hook declarations for cachix/git-hooks.nix
+# Each custom hook references a script from nix/pre-commit.nix via hookBin.
 {
-  system,
-  pkgs,
-  git-hooks,
+  hookBin,
   treefmt,
   rustToolchain,
 }:
-
-let
-  generate-manifests = pkgs.writeShellApplication {
-    name = "generate-manifests";
-    runtimeInputs = [
-      rustToolchain
-      pkgs.kustomize
-      pkgs.git
-    ];
-    text = builtins.readFile ../scripts/generate.sh;
+{
+  # ── Pre-commit hooks ───────────────────────────────────────────────
+  treefmt = {
+    enable = true;
+    name = "Format All";
+    entry = "${treefmt}/bin/treefmt --fail-on-change";
+    pass_filenames = false;
+    stages = [ "pre-commit" ];
   };
-in
-git-hooks.lib.${system}.run {
-  src = ../.;
-  hooks = {
-    treefmt = {
-      enable = true;
-      package = treefmt.config.build.wrapper;
-      entry = "${treefmt.config.build.wrapper}/bin/treefmt --fail-on-change";
+  clippy = {
+    enable = true;
+    packageOverrides = {
+      cargo = rustToolchain;
+      clippy = rustToolchain;
     };
-    clippy = {
-      enable = true;
-      packageOverrides = {
-        cargo = rustToolchain;
-        clippy = rustToolchain;
-      };
-    };
-    generate-manifests = {
-      enable = true;
-      name = "generate-manifests";
-      entry = "${generate-manifests}/bin/generate-manifests";
-      files = "(deploy/.*\\.yaml|src/crd\\.rs)$";
-      pass_filenames = false;
-    };
-    commitizen.enable = true;
+    stages = [ "pre-commit" ];
+  };
+  generate-manifests = {
+    enable = true;
+    name = "generate-manifests";
+    entry = hookBin.generate-manifests;
+    files = "(deploy/.*\\.yaml|src/crd\\.rs)$";
+    pass_filenames = false;
+    stages = [ "pre-commit" ];
+  };
+  commitizen.enable = true;
+
+  # ── Pre-push hooks ─────────────────────────────────────────────────
+  e2e-tests = {
+    enable = true;
+    name = "e2e-tests";
+    entry = "${rustToolchain}/bin/cargo test --test e2e -- --ignored --test-threads=1";
+    pass_filenames = false;
+    always_run = true;
+    stages = [ "pre-push" ];
   };
 }

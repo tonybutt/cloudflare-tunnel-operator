@@ -3,22 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
     nix2container = {
       url = "github:nlewo/nix2container";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
     git-hooks = {
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -46,19 +42,27 @@
         inherit pkgs package;
         nix2container = nix2container.packages.${system}.nix2container;
       };
-      treefmt = import ./nix/treefmt.nix { inherit pkgs treefmt-nix; };
-      pre-commit = import ./nix/git-hooks.nix {
-        inherit
-          system
-          pkgs
-          git-hooks
-          treefmt
-          rustToolchain
-          ;
+
+      treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
+      treefmt = treefmtEval.config.build.wrapper;
+
+      hookPackages = import ./nix/pre-commit.nix { inherit pkgs rustToolchain; };
+      hookBin = builtins.listToAttrs (
+        map (drv: {
+          name = drv.name;
+          value = "${drv}/bin/${drv.name}";
+        }) hookPackages
+      );
+
+      hookDefs = import ./nix/git-hooks.nix { inherit hookBin treefmt rustToolchain; };
+
+      gitHooksCheck = git-hooks.lib.${system}.run {
+        src = ./.;
+        hooks = hookDefs;
       };
     in
     {
-      formatter.${system} = treefmt.config.build.wrapper;
+      formatter.${system} = treefmt;
 
       packages.${system} = {
         default = package;
@@ -67,12 +71,14 @@
 
       devShells.${system}.default = import ./nix/shell.nix {
         inherit pkgs rustToolchain;
-        git-hooks = pre-commit;
+        hooks = hookPackages;
+        gitHooksShellHook = gitHooksCheck.shellHook;
+        gitHooksPackages = gitHooksCheck.enabledPackages;
       };
 
       checks.${system} = {
-        formatting = treefmt.config.build.check self;
-        pre-commit = pre-commit;
+        formatting = treefmtEval.config.build.check self;
+        pre-commit = gitHooksCheck;
       };
     };
 }

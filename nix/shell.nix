@@ -1,22 +1,27 @@
 {
   pkgs,
   rustToolchain,
-  git-hooks,
+  hooks,
+  gitHooksShellHook,
+  gitHooksPackages,
 }:
 
 pkgs.mkShell {
   name = "cloudflare-tunnel-operator";
 
-  packages = with pkgs; [
-    rustToolchain
-    kubectl
-    kustomize
-    gh
-    git
-    kind
-  ];
+  buildInputs =
+    gitHooksPackages
+    ++ hooks
+    ++ [
+      rustToolchain
+      pkgs.kubectl
+      pkgs.kustomize
+      pkgs.gh
+      pkgs.git
+      pkgs.kind
+    ];
 
   shellHook = ''
-    ${git-hooks.shellHook}
+    ${gitHooksShellHook}
   '';
 }
