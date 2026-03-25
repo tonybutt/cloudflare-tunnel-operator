@@ -10,7 +10,7 @@ use kube::{Resource, ResourceExt};
 
 use crate::crd::CloudflareTunnel;
 
-const DEFAULT_IMAGE: &str = "cloudflare/cloudflared:2024.11.0";
+const DEFAULT_IMAGE: &str = "cloudflare/cloudflared:2026.3.0";
 
 /// Builds a cloudflared Deployment with volume mounts for credentials and config.
 pub fn build(tunnel: &CloudflareTunnel) -> Result<Deployment, &'static str> {

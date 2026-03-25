@@ -142,15 +142,15 @@ spec:
 
 ## Configuration Reference
 
-| Field                               | Type   | Required | Default                            | Description                                                              |
-| ----------------------------------- | ------ | -------- | ---------------------------------- | ------------------------------------------------------------------------ |
-| `spec.zone`                         | string | yes      | —                                  | Cloudflare zone name (e.g. `example.com`) used for DNS record management |
-| `spec.gateway.gatewayClassName`     | string | yes      | —                                  | Name of the GatewayClass to use (e.g. `cilium`)                          |
-| `spec.gateway.listeners`            | list   | yes      | —                                  | One or more hostnames the tunnel will serve                              |
-| `spec.gateway.listeners[].hostname` | string | yes      | —                                  | Exact hostname or wildcard (e.g. `app.example.com` or `*.example.com`)   |
-| `spec.image`                        | string | no       | `cloudflare/cloudflared:2024.11.0` | Override the `cloudflared` container image                               |
-| `spec.credentialsRef.name`          | string | no       | —                                  | Name of a Secret containing a `token` key with a Cloudflare API token    |
-| `spec.credentialsRef.namespace`     | string | no       | —                                  | Namespace of the override Secret; required when `credentialsRef` is set  |
+| Field                               | Type   | Required | Default                           | Description                                                              |
+| ----------------------------------- | ------ | -------- | --------------------------------- | ------------------------------------------------------------------------ |
+| `spec.zone`                         | string | yes      | —                                 | Cloudflare zone name (e.g. `example.com`) used for DNS record management |
+| `spec.gateway.gatewayClassName`     | string | yes      | —                                 | Name of the GatewayClass to use (e.g. `cilium`)                          |
+| `spec.gateway.listeners`            | list   | yes      | —                                 | One or more hostnames the tunnel will serve                              |
+| `spec.gateway.listeners[].hostname` | string | yes      | —                                 | Exact hostname or wildcard (e.g. `app.example.com` or `*.example.com`)   |
+| `spec.image`                        | string | no       | `cloudflare/cloudflared:2026.3.0` | Override the `cloudflared` container image                               |
+| `spec.credentialsRef.name`          | string | no       | —                                 | Name of a Secret containing a `token` key with a Cloudflare API token    |
+| `spec.credentialsRef.namespace`     | string | no       | —                                 | Namespace of the override Secret; required when `credentialsRef` is set  |
 
 When `credentialsRef` is omitted the operator falls back to the `CF_API_TOKEN` environment variable set on the controller Deployment (the `cloudflare-api-token` Secret in `cloudflare-operator`).
 

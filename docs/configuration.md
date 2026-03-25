@@ -58,7 +58,7 @@ spec:
 
 ### `spec.image` (optional)
 
-Override the `cloudflared` container image. Defaults to `cloudflare/cloudflared:2024.11.0`.
+Override the `cloudflared` container image. Defaults to `cloudflare/cloudflared:2026.3.0`.
 
 ```yaml
 spec:
