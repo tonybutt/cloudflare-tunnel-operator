@@ -2,7 +2,14 @@
   projectRootFile = "flake.nix";
 
   programs = {
-    nixfmt.enable = true;
+    deadnix = {
+      enable = true;
+      priority = 0;
+    };
+    nixfmt = {
+      enable = true;
+      priority = 1;
+    };
     rustfmt.enable = true;
     prettier = {
       enable = true;

@@ -38,7 +38,6 @@
     stages = [ "pre-commit" ];
   };
   flake-checker.enable = true;
-  deadnix.enable = true;
   statix.enable = true;
   typos.enable = true;
   check-merge-conflicts.enable = true;

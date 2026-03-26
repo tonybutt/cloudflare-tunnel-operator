@@ -38,9 +38,10 @@
       rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
       package = import ./nix/package.nix { inherit pkgs rustToolchain; };
+      n2c = nix2container.packages.${system}.nix2container;
       container = import ./nix/container.nix {
         inherit pkgs package;
-        nix2container = nix2container.packages.${system}.nix2container;
+        nix2container = n2c;
       };
 
       treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
@@ -49,7 +50,7 @@
       hookPackages = import ./nix/pre-commit.nix { inherit pkgs rustToolchain; };
       hookBin = builtins.listToAttrs (
         map (drv: {
-          name = drv.name;
+          inherit (drv) name;
           value = "${drv}/bin/${drv.name}";
         }) hookPackages
       );
@@ -66,7 +67,7 @@
 
       packages.${system} = {
         default = package;
-        container = container;
+        inherit container;
       };
 
       devShells.${system}.default = import ./nix/shell.nix {
