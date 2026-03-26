@@ -138,28 +138,33 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
             })?;
 
     // 2. Ensure tunnel exists
-    let (tunnel_id, credentials_json) = ensure_tunnel(&tunnel, cf, &account_id).await?;
+    let tunnel_id = ensure_tunnel(&tunnel, cf, &account_id).await?;
 
     // 3. Sync DNS records
     let route_statuses = sync_dns(cf, &zone_id, &tunnel_id, &tunnel).await?;
 
-    // 4. Sync Secret (server-side apply)
-    if let Some(creds) = &credentials_json {
-        let secret = resources::secret::build(&tunnel, creds).map_err(Error::InvalidResource)?;
-        let secret_api: Api<Secret> = Api::namespaced(client.clone(), &ns);
-        let pp = PatchParams::apply(MANAGER).force();
-        secret_api
-            .patch(
-                &format!("{name}-tunnel-credentials"),
-                &pp,
-                &Patch::Apply(&secret),
-            )
-            .await
-            .map_err(|e| Error::Kube {
-                source: e,
-                operation: "sync_secret",
-            })?;
-    }
+    // 4. Fetch tunnel token and sync Secret
+    let token = cf
+        .get_tunnel_token(&account_id, &tunnel_id)
+        .await
+        .map_err(|e| Error::Cloudflare {
+            source: e,
+            operation: "get_tunnel_token",
+        })?;
+    let secret = resources::secret::build(&tunnel, &token).map_err(Error::InvalidResource)?;
+    let secret_api: Api<Secret> = Api::namespaced(client.clone(), &ns);
+    let pp = PatchParams::apply(MANAGER).force();
+    secret_api
+        .patch(
+            &format!("{name}-tunnel-credentials"),
+            &pp,
+            &Patch::Apply(&secret),
+        )
+        .await
+        .map_err(|e| Error::Kube {
+            source: e,
+            operation: "sync_secret",
+        })?;
 
     // 5. Sync ConfigMap
     let configmap =
@@ -244,7 +249,7 @@ async fn ensure_tunnel(
     tunnel: &CloudflareTunnel,
     cf: &dyn CloudflareApi,
     account_id: &str,
-) -> Result<(String, Option<String>), Error> {
+) -> Result<String, Error> {
     let name = tunnel.name_any();
 
     // Check if we already have a tunnel ID in status
@@ -258,7 +263,7 @@ async fn ensure_tunnel(
                     source: e,
                     operation: "get_tunnel",
                 })? {
-                Some(_) => return Ok((tid.clone(), None)),
+                Some(_) => return Ok(tid.clone()),
                 None => {
                     tracing::warn!(tunnel_id = %tid, "tunnel was deleted externally, recreating");
                 }
@@ -267,7 +272,7 @@ async fn ensure_tunnel(
     }
 
     // Create a new tunnel
-    let (t, creds) = cf
+    let t = cf
         .create_tunnel(account_id, &name)
         .await
         .map_err(|e| Error::Cloudflare {
@@ -275,7 +280,7 @@ async fn ensure_tunnel(
             operation: "create_tunnel",
         })?;
     tracing::info!(tunnel_id = %t.id, "created tunnel");
-    Ok((t.id, Some(creds)))
+    Ok(t.id)
 }
 
 async fn sync_dns(

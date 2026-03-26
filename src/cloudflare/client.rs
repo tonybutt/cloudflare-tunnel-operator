@@ -8,11 +8,7 @@ const TUNNEL_COMMENT: &str = "Managed by cloudflare-tunnel-operator";
 #[async_trait::async_trait]
 pub trait CloudflareApi: Send + Sync {
     async fn get_zone_id(&self, zone_name: &str) -> Result<(String, String), CloudflareError>;
-    async fn create_tunnel(
-        &self,
-        account_id: &str,
-        name: &str,
-    ) -> Result<(Tunnel, String), CloudflareError>;
+    async fn create_tunnel(&self, account_id: &str, name: &str) -> Result<Tunnel, CloudflareError>;
     async fn delete_tunnel(&self, account_id: &str, tunnel_id: &str)
     -> Result<(), CloudflareError>;
     async fn get_tunnel(
@@ -121,11 +117,7 @@ impl CloudflareApi for CloudflareClient {
         Ok((zone.id, zone.account.id))
     }
 
-    async fn create_tunnel(
-        &self,
-        account_id: &str,
-        name: &str,
-    ) -> Result<(Tunnel, String), CloudflareError> {
+    async fn create_tunnel(&self, account_id: &str, name: &str) -> Result<Tunnel, CloudflareError> {
         let secret_bytes: [u8; 32] = rand::rng().random();
         let tunnel_secret = base64::engine::general_purpose::STANDARD.encode(secret_bytes);
 
@@ -159,13 +151,7 @@ impl CloudflareApi for CloudflareClient {
                     endpoint,
                 })?;
 
-        let creds = serde_json::json!({
-            "AccountTag": account_id,
-            "TunnelID": body.result.id,
-            "TunnelSecret": tunnel_secret,
-        });
-
-        Ok((body.result, creds.to_string()))
+        Ok(body.result)
     }
 
     async fn delete_tunnel(
