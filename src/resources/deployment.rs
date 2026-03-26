@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
 use k8s_openapi::api::core::v1::{
-    ConfigMapVolumeSource, Container, PodSpec, PodTemplateSpec, SecretVolumeSource, Volume,
-    VolumeMount,
+    ConfigMapVolumeSource, Container, EnvVar, EnvVarSource, PodSpec, PodTemplateSpec,
+    SecretKeySelector, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 use kube::{Resource, ResourceExt};
@@ -64,40 +64,34 @@ pub fn build(tunnel: &CloudflareTunnel) -> Result<Deployment, &'static str> {
                             "/etc/cloudflared/config/config.yaml".to_string(),
                             "run".to_string(),
                         ]),
-                        volume_mounts: Some(vec![
-                            VolumeMount {
-                                name: "creds".to_string(),
-                                mount_path: "/etc/cloudflared/creds".to_string(),
-                                read_only: Some(true),
+                        env: Some(vec![EnvVar {
+                            name: "TUNNEL_TOKEN".to_string(),
+                            value_from: Some(EnvVarSource {
+                                secret_key_ref: Some(SecretKeySelector {
+                                    name: format!("{name}-tunnel-credentials"),
+                                    key: "token".to_string(),
+                                    ..Default::default()
+                                }),
                                 ..Default::default()
-                            },
-                            VolumeMount {
-                                name: "config".to_string(),
-                                mount_path: "/etc/cloudflared/config".to_string(),
-                                read_only: Some(true),
-                                ..Default::default()
-                            },
-                        ]),
+                            }),
+                            ..Default::default()
+                        }]),
+                        volume_mounts: Some(vec![VolumeMount {
+                            name: "config".to_string(),
+                            mount_path: "/etc/cloudflared/config".to_string(),
+                            read_only: Some(true),
+                            ..Default::default()
+                        }]),
                         ..Default::default()
                     }],
-                    volumes: Some(vec![
-                        Volume {
-                            name: "creds".to_string(),
-                            secret: Some(SecretVolumeSource {
-                                secret_name: Some(format!("{name}-tunnel-credentials")),
-                                ..Default::default()
-                            }),
+                    volumes: Some(vec![Volume {
+                        name: "config".to_string(),
+                        config_map: Some(ConfigMapVolumeSource {
+                            name: format!("{name}-config"),
                             ..Default::default()
-                        },
-                        Volume {
-                            name: "config".to_string(),
-                            config_map: Some(ConfigMapVolumeSource {
-                                name: format!("{name}-config"),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        },
-                    ]),
+                        }),
+                        ..Default::default()
+                    }]),
                     ..Default::default()
                 }),
             },
@@ -165,31 +159,28 @@ mod tests {
     }
 
     #[test]
-    fn deployment_mounts_creds_and_config() {
+    fn deployment_mounts_config_volume() {
         let tunnel = test_tunnel("web", "default");
         let deploy = build(&tunnel).unwrap();
         let spec = deploy.spec.unwrap().template.spec.unwrap();
         let mounts = spec.containers[0].volume_mounts.as_ref().unwrap();
-        assert_eq!(mounts.len(), 2);
-        assert!(mounts.iter().any(|m| m.name == "creds"));
+        assert_eq!(mounts.len(), 1);
         assert!(mounts.iter().any(|m| m.name == "config"));
     }
 
     #[test]
-    fn deployment_references_correct_secret() {
+    fn deployment_injects_tunnel_token_env() {
         let tunnel = test_tunnel("web", "default");
         let deploy = build(&tunnel).unwrap();
-        let volumes = deploy.spec.unwrap().template.spec.unwrap().volumes.unwrap();
-        let creds_vol = volumes.iter().find(|v| v.name == "creds").unwrap();
-        assert_eq!(
-            creds_vol
-                .secret
-                .as_ref()
-                .unwrap()
-                .secret_name
-                .as_deref()
-                .unwrap(),
-            "web-tunnel-credentials"
-        );
+        let container = &deploy.spec.unwrap().template.spec.unwrap().containers[0];
+        let env = container.env.as_ref().expect("env vars should be set");
+        let token_env = env
+            .iter()
+            .find(|e| e.name == "TUNNEL_TOKEN")
+            .expect("TUNNEL_TOKEN env var");
+        let source = token_env.value_from.as_ref().expect("should use valueFrom");
+        let secret_ref = source.secret_key_ref.as_ref().expect("should ref a secret");
+        assert_eq!(secret_ref.key, "token");
+        assert!(secret_ref.name.contains("tunnel-credentials"));
     }
 }
