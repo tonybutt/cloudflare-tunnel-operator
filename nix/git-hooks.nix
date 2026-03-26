@@ -40,6 +40,14 @@
   commitizen.enable = true;
 
   # ── Pre-push hooks ─────────────────────────────────────────────────
+  nix-build = {
+    enable = true;
+    name = "nix-build";
+    entry = "nix build";
+    pass_filenames = false;
+    always_run = true;
+    stages = [ "pre-push" ];
+  };
   e2e-tests = {
     enable = true;
     name = "e2e-tests";

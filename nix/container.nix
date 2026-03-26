@@ -2,11 +2,12 @@
   pkgs,
   package,
   nix2container,
+  tag ? "latest",
 }:
 
 nix2container.buildImage {
   name = "ghcr.io/tonybutt/cloudflare-tunnel-operator";
-  tag = "latest";
+  inherit tag;
 
   config = {
     entrypoint = [ "${package}/bin/cloudflare-tunnel-operator" ];
