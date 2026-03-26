@@ -145,8 +145,7 @@ async fn apply(tunnel: Arc<CloudflareTunnel>, ctx: &Ctx) -> Result<Action, Error
 
     // 4. Sync Secret (server-side apply)
     if let Some(creds) = &credentials_json {
-        let secret =
-            resources::secret::build(&tunnel, creds.as_bytes()).map_err(Error::InvalidResource)?;
+        let secret = resources::secret::build(&tunnel, creds).map_err(Error::InvalidResource)?;
         let secret_api: Api<Secret> = Api::namespaced(client.clone(), &ns);
         let pp = PatchParams::apply(MANAGER).force();
         secret_api

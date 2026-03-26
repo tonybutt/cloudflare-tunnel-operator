@@ -7,11 +7,11 @@ use kube::{Resource, ResourceExt};
 
 use crate::crd::CloudflareTunnel;
 
-/// Builds a Secret containing tunnel credentials JSON.
+/// Builds a Secret containing the tunnel token.
 ///
-/// The secret is named `{name}-tunnel-credentials` and stores the credentials
-/// under the key `credentials.json`.
-pub fn build(tunnel: &CloudflareTunnel, credentials_json: &[u8]) -> Result<Secret, &'static str> {
+/// The secret is named `{name}-tunnel-credentials` and stores the token
+/// under the key `token`.
+pub fn build(tunnel: &CloudflareTunnel, token: &str) -> Result<Secret, &'static str> {
     let name = tunnel.name_any();
     let namespace = tunnel
         .namespace()
@@ -21,10 +21,7 @@ pub fn build(tunnel: &CloudflareTunnel, credentials_json: &[u8]) -> Result<Secre
         .ok_or("failed to build owner reference")?;
 
     let mut data = BTreeMap::new();
-    data.insert(
-        "credentials.json".to_string(),
-        ByteString(credentials_json.to_vec()),
-    );
+    data.insert("token".to_string(), ByteString(token.as_bytes().to_vec()));
 
     Ok(Secret {
         metadata: ObjectMeta {
@@ -76,7 +73,7 @@ mod tests {
     #[test]
     fn secret_has_correct_name() {
         let tunnel = test_tunnel("my-tunnel", "default");
-        let secret = build(&tunnel, b"creds-json").unwrap();
+        let secret = build(&tunnel, "test-token").unwrap();
         assert_eq!(
             secret.metadata.name.unwrap(),
             "my-tunnel-tunnel-credentials"
@@ -86,14 +83,14 @@ mod tests {
     #[test]
     fn secret_has_correct_namespace() {
         let tunnel = test_tunnel("my-tunnel", "my-ns");
-        let secret = build(&tunnel, b"creds").unwrap();
+        let secret = build(&tunnel, "tok").unwrap();
         assert_eq!(secret.metadata.namespace.unwrap(), "my-ns");
     }
 
     #[test]
     fn secret_has_managed_by_label() {
         let tunnel = test_tunnel("t", "default");
-        let secret = build(&tunnel, b"c").unwrap();
+        let secret = build(&tunnel, "t").unwrap();
         let labels = secret.metadata.labels.unwrap();
         assert_eq!(
             labels["app.kubernetes.io/managed-by"],
@@ -104,18 +101,17 @@ mod tests {
     #[test]
     fn secret_has_owner_reference() {
         let tunnel = test_tunnel("t", "default");
-        let secret = build(&tunnel, b"c").unwrap();
+        let secret = build(&tunnel, "t").unwrap();
         let orefs = secret.metadata.owner_references.unwrap();
         assert_eq!(orefs.len(), 1);
         assert_eq!(orefs[0].name, "t");
     }
 
     #[test]
-    fn secret_contains_credentials_data() {
+    fn secret_contains_token_data() {
         let tunnel = test_tunnel("t", "default");
-        let creds = b"test-credentials-json";
-        let secret = build(&tunnel, creds).unwrap();
+        let secret = build(&tunnel, "test-token").unwrap();
         let data = secret.data.unwrap();
-        assert_eq!(data["credentials.json"].0, creds);
+        assert_eq!(data["token"].0, b"test-token");
     }
 }
