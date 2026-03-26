@@ -45,7 +45,5 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build container image
-        run: nix build .#container
       - name: Push container image to GHCR
-        run: ./result copyToRegistry
+        run: nix run .#container.copyToRegistry
