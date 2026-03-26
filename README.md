@@ -1,6 +1,6 @@
 # cloudflare-tunnel-operator
 
-A Kubernetes operator that manages Cloudflare Tunnels as native cluster resources. Declare a `CloudflareTunnel` custom resource and the operator automatically creates the Cloudflare tunnel, provisions CNAME DNS records, stores credentials in a Kubernetes Secret, and deploys a `cloudflared` pod — all tied together with a Gateway API `Gateway` object so that `HTTPRoute` resources in any namespace can route traffic through the tunnel without exposing any ports to the internet.
+A Kubernetes operator that manages Cloudflare Tunnels as native cluster resources. Declare a `CloudflareTunnel` custom resource and the operator automatically creates the Cloudflare tunnel, provisions CNAME DNS records, stores the tunnel token in a Kubernetes Secret, and deploys a `cloudflared` pod — all tied together with a Gateway API `Gateway` object so that `HTTPRoute` resources in any namespace can route traffic through the tunnel without exposing any ports to the internet.
 
 ## Prerequisites
 
