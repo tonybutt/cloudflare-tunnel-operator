@@ -9,8 +9,8 @@ use crate::crd::CloudflareTunnel;
 
 /// Builds a ConfigMap containing the cloudflared configuration.
 ///
-/// The config includes the tunnel ID, credentials-file path, and a single
-/// ingress rule pointing to the gateway service with a catch-all 404.
+/// The config includes the tunnel ID and a single ingress rule pointing to
+/// the gateway service. Token-based auth is used; no credentials-file needed.
 pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> Result<ConfigMap, &'static str> {
     let name = tunnel.name_any();
     let namespace = tunnel
@@ -24,7 +24,6 @@ pub fn build(tunnel: &CloudflareTunnel, tunnel_id: &str) -> Result<ConfigMap, &'
 
     let config = CloudflaredConfigFile {
         tunnel: tunnel_id.to_string(),
-        credentials_file: "/etc/cloudflared/creds/credentials.json".to_string(),
         ingress: vec![UnvalidatedIngressRule {
             service: format!("http://{gateway_svc}"),
             ..Default::default()
@@ -103,14 +102,5 @@ mod tests {
         let data = cm.data.unwrap();
         let config = &data["config.yaml"];
         assert!(config.contains("http://web-gateway.prod.svc.cluster.local"));
-    }
-
-    #[test]
-    fn configmap_has_credentials_path() {
-        let tunnel = test_tunnel("t", "default");
-        let cm = build(&tunnel, "tid").unwrap();
-        let data = cm.data.unwrap();
-        let config = &data["config.yaml"];
-        assert!(config.contains("credentials-file: /etc/cloudflared/creds/credentials.json"));
     }
 }

@@ -3,14 +3,11 @@ use serde::{Deserialize, Serialize};
 // Generate all cloudflared config types from the vendored Go source
 cloudflared_config_macro::cloudflared_config_types!("codegen/configuration.go");
 
-/// Wrapper for the cloudflared config file that includes the credentials-file
-/// path, which is not part of the upstream Go struct but is needed when
-/// writing the config.yaml for a tunnel pod.
+/// Wrapper for the cloudflared config file used when writing config.yaml for
+/// a tunnel pod. Token-based auth is used, so no credentials-file is needed.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CloudflaredConfigFile {
     pub tunnel: String,
-    #[serde(rename = "credentials-file")]
-    pub credentials_file: String,
     pub ingress: Vec<UnvalidatedIngressRule>,
 }
 
@@ -22,7 +19,6 @@ mod tests {
     fn config_serializes_to_valid_yaml() {
         let config = CloudflaredConfigFile {
             tunnel: "test-id".to_string(),
-            credentials_file: "/etc/cloudflared/creds/credentials.json".to_string(),
             ingress: vec![UnvalidatedIngressRule {
                 service: "http://my-gateway.default.svc.cluster.local".to_string(),
                 ..Default::default()
@@ -30,7 +26,6 @@ mod tests {
         };
         let yaml = serde_yaml::to_string(&config).unwrap();
         assert!(yaml.contains("tunnel: test-id"));
-        assert!(yaml.contains("credentials-file:"));
         assert!(yaml.contains("service: http://my-gateway"));
         // Should NOT contain "hostname" when empty (default)
         assert!(!yaml.contains("hostname"));
@@ -40,7 +35,6 @@ mod tests {
     fn ingress_rule_with_hostname() {
         let config = CloudflaredConfigFile {
             tunnel: "test-id".to_string(),
-            credentials_file: "/creds.json".to_string(),
             ingress: vec![
                 UnvalidatedIngressRule {
                     hostname: "app.example.com".to_string(),
