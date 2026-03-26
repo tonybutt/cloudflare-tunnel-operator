@@ -35,6 +35,11 @@ pub trait CloudflareApi: Send + Sync {
         &self,
         zone_id: &str,
     ) -> Result<Vec<DnsRecord>, CloudflareError>;
+    async fn get_tunnel_token(
+        &self,
+        account_id: &str,
+        tunnel_id: &str,
+    ) -> Result<String, CloudflareError>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -365,6 +370,39 @@ impl CloudflareApi for CloudflareClient {
         })?;
 
         let body: CfListResponse<DnsRecord> =
+            resp.json()
+                .await
+                .map_err(|e| CloudflareError::Deserialize {
+                    source: e,
+                    endpoint,
+                })?;
+
+        Ok(body.result)
+    }
+
+    async fn get_tunnel_token(
+        &self,
+        account_id: &str,
+        tunnel_id: &str,
+    ) -> Result<String, CloudflareError> {
+        let endpoint = format!("{CF_API_BASE}/accounts/{account_id}/cfd_tunnel/{tunnel_id}/token");
+        let resp = self
+            .http
+            .get(&endpoint)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .map_err(|e| CloudflareError::Http {
+                source: e,
+                endpoint: endpoint.clone(),
+            })?;
+
+        let resp = resp.error_for_status().map_err(|e| CloudflareError::Http {
+            source: e,
+            endpoint: endpoint.clone(),
+        })?;
+
+        let body: CfResponse<String> =
             resp.json()
                 .await
                 .map_err(|e| CloudflareError::Deserialize {
