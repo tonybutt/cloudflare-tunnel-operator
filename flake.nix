@@ -78,7 +78,6 @@
 
       checks.${system} = {
         formatting = treefmtEval.config.build.check self;
-        pre-commit = gitHooksCheck;
       };
     };
 }

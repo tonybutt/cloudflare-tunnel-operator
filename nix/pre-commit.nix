@@ -10,6 +10,11 @@
     text = builtins.readFile ../scripts/generate.sh;
   })
   (pkgs.writeShellApplication {
+    name = "cargo-audit";
+    runtimeInputs = [ pkgs.cargo-audit ];
+    text = "cargo-audit audit";
+  })
+  (pkgs.writeShellApplication {
     name = "e2e-tests";
     runtimeInputs = [ rustToolchain ];
     text = ''

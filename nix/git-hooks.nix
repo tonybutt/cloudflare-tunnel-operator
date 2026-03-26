@@ -30,6 +30,13 @@
     pass_filenames = false;
     stages = [ "pre-commit" ];
   };
+  cargo-audit = {
+    enable = true;
+    name = "cargo-audit";
+    entry = "${hookBin.cargo-audit}";
+    pass_filenames = false;
+    stages = [ "pre-commit" ];
+  };
   commitizen.enable = true;
 
   # ── Pre-push hooks ─────────────────────────────────────────────────

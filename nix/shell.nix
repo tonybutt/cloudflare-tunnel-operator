@@ -19,6 +19,8 @@ pkgs.mkShell {
       pkgs.gh
       pkgs.git
       pkgs.kind
+      pkgs.cargo-tarpaulin
+      pkgs.cargo-audit
     ];
 
   shellHook = ''
