@@ -59,6 +59,7 @@
 
       gitHooksCheck = git-hooks.lib.${system}.run {
         src = ./.;
+        package = pkgs.prek;
         hooks = hookDefs;
       };
     in
