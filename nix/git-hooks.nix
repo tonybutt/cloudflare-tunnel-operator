@@ -7,39 +7,38 @@
   rustToolchain,
 }:
 {
-  # ── Pre-commit: 0 — fast checks (parallel) ────────────────────────
-  typos = {
-    enable = true;
-    priority = 0;
-  };
-  check-merge-conflicts = {
-    enable = true;
-    priority = 0;
-  };
-  check-added-large-files = {
-    enable = true;
-    priority = 0;
-  };
-  flake-checker = {
-    enable = true;
-    priority = 0;
-  };
-  statix = {
-    enable = true;
-    priority = 0;
-  };
-
-  # ── Pre-commit: 10 — formatting ───────────────────────────────────
+  # ── Pre-commit: 0 — formatting (fail_fast, must pass before others) ─
   treefmt = {
     enable = true;
     name = "Format All";
     entry = "${treefmt}/bin/treefmt --fail-on-change";
     pass_filenames = false;
     stages = [ "pre-commit" ];
-    priority = 10;
+    fail_fast = true;
+    priority = 0;
   };
 
-  # ── Pre-commit: 20 — lint / audit (parallel) ──────────────────────
+  # ── Pre-commit: 1 — everything else (parallel) ─────────────────────
+  typos = {
+    enable = true;
+    priority = 1;
+  };
+  check-merge-conflicts = {
+    enable = true;
+    priority = 1;
+  };
+  check-added-large-files = {
+    enable = true;
+    priority = 1;
+  };
+  flake-checker = {
+    enable = true;
+    priority = 1;
+  };
+  statix = {
+    enable = true;
+    priority = 1;
+  };
   clippy = {
     enable = true;
     packageOverrides = {
@@ -47,7 +46,7 @@
       clippy = rustToolchain;
     };
     stages = [ "pre-commit" ];
-    priority = 20;
+    priority = 1;
   };
   cargo-audit = {
     enable = true;
@@ -55,10 +54,8 @@
     entry = "${hookBin.cargo-audit}";
     pass_filenames = false;
     stages = [ "pre-commit" ];
-    priority = 20;
+    priority = 1;
   };
-
-  # ── Pre-commit: 30 — codegen ──────────────────────────────────────
   generate-manifests = {
     enable = true;
     name = "generate-manifests";
@@ -66,13 +63,13 @@
     files = "(deploy/.*\\.yaml|src/crd\\.rs)$";
     pass_filenames = false;
     stages = [ "pre-commit" ];
-    priority = 30;
+    priority = 1;
   };
 
-  # ── Commit-msg ────────────────────────────────────────────────────
+  # ── Commit-msg ──────────────────────────────────────────────────────
   commitizen.enable = true;
 
-  # ── Pre-push: 0 — container build ────────────────────────────────
+  # ── Pre-push: 0 — build + e2e (parallel) ───────────────────────────
   nix-build = {
     enable = true;
     name = "nix-build";
@@ -82,8 +79,6 @@
     stages = [ "pre-push" ];
     priority = 0;
   };
-
-  # ── Pre-push: 10 — e2e tests ─────────────────────────────────────
   e2e-tests = {
     enable = true;
     name = "e2e-tests";
@@ -91,6 +86,6 @@
     pass_filenames = false;
     always_run = true;
     stages = [ "pre-push" ];
-    priority = 10;
+    priority = 0;
   };
 }
