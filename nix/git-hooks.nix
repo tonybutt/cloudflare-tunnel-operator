@@ -43,7 +43,7 @@
   nix-build = {
     enable = true;
     name = "nix-build";
-    entry = "nix build";
+    entry = "nix build .#container";
     pass_filenames = false;
     always_run = true;
     stages = [ "pre-push" ];
