@@ -37,6 +37,12 @@
     pass_filenames = false;
     stages = [ "pre-commit" ];
   };
+  flake-checker.enable = true;
+  deadnix.enable = true;
+  statix.enable = true;
+  typos.enable = true;
+  check-merge-conflicts.enable = true;
+  check-added-large-files.enable = true;
   commitizen.enable = true;
 
   # ── Pre-push hooks ─────────────────────────────────────────────────
